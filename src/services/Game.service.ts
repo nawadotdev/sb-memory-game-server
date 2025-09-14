@@ -14,6 +14,10 @@ const toSafeGame = (game: IGame) => {
 export class GameSocketService {
     private static games = new Map<string, IGame & { timeout?: NodeJS.Timeout }>();
 
+    static getAllGames() {
+        return Array.from(this.games.values());
+    }
+
     static async createGame(game: IGame) {
         const created = await GameDB.create(game);
         const obj = created.toObject() as IGame;
