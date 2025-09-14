@@ -8,7 +8,17 @@ import { connectDB } from "./lib/mongodb";
   await connectDB();
 
   const httpServer = createServer();
-  const io = new Server(httpServer, { cors: { origin: "*" } });
+  const io = new Server(httpServer, {
+    cors: {
+      origin: [
+        "http://localhost:3000",
+        "https://sb-memory-game.vercel.app",
+      ],
+      methods: ["GET", "POST"],
+      credentials: true,
+    },
+    transports: ["websocket", "polling"],
+  });
 
   io.use((socket, next) => {
     try {
