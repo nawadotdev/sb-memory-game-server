@@ -27,18 +27,18 @@ import { connectDB } from "./lib/mongodb";
     console.log(`User connected: ${userId}`);
 
     socket.on("join", async (gameId: string) => {
-      let game = GameSocketService.getGame(gameId);
-      if (!game) game = await GameSocketService.loadGame(gameId);
+      let game = GameSocketService.getGame(gameId, userId);
+      if (!game) game = await GameSocketService.loadGame(gameId, userId);
       if (!game) return socket.emit("error_message", "Game not found");
 
       socket.join(gameId);
-      socket.emit("state", GameSocketService.getSafeGame(gameId));
+      socket.emit("state", GameSocketService.getSafeGame(gameId, userId));
     });
 
     socket.on("flip", ({ gameId, cardIndex }) => {
       try {
-        GameSocketService.flipCard(gameId, cardIndex);
-        io.to(gameId).emit("state", GameSocketService.getSafeGame(gameId));
+        GameSocketService.flipCard(gameId, cardIndex, userId);
+        io.to(gameId).emit("state", GameSocketService.getSafeGame(gameId, userId));
       } catch (err: any) {
         socket.emit("error_message", err.message);
       }
@@ -46,8 +46,8 @@ import { connectDB } from "./lib/mongodb";
 
     socket.on("match", ({ gameId }) => {
       try {
-        GameSocketService.matchCards(gameId);
-        io.to(gameId).emit("state", GameSocketService.getSafeGame(gameId));
+        GameSocketService.matchCards(gameId, userId);
+        io.to(gameId).emit("state", GameSocketService.getSafeGame(gameId, userId));
       } catch (err: any) {
         socket.emit("error_message", err.message);
       }

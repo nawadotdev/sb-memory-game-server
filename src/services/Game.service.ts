@@ -1,3 +1,4 @@
+import { Types } from "mongoose";
 import { IGame, GameDB, CardStatus, GameStatus, GameActionType } from "../models/Game.model";
 
 const toSafeGame = (game: IGame) => {
@@ -18,46 +19,47 @@ export class GameSocketService {
         return Array.from(this.games.values());
     }
 
-    static async createGame(game: IGame) {
+    static async createGame(game: IGame, userId: string) {
         const created = await GameDB.create(game);
         const obj = created.toObject() as IGame;
-        this.setGame(obj._id.toString(), obj);
+        this.setGame(obj._id.toString(), obj, userId);
         return obj;
     }
 
-    static getGame(id: string): IGame | null {
+    static getGame(id: string, userId: string): IGame | null {
         const g = this.games.get(id);
-        return g ?? null;
+        return g && g.userId.toString() === userId ? g : null;
     }
 
-    static async loadGame(id: string) {
-        const dbGame = await GameDB.findById(id).lean<IGame>();
+    static async loadGame(id: string, userId: string) {
+        const dbGame = await GameDB.findOne({ _id: id, userId }).lean<IGame>();
         if (!dbGame) return null;
-        this.setGame(id, dbGame);
+        this.setGame(id, dbGame, userId);
         return dbGame;
     }
 
-    static updateGame(id: string, game: IGame) {
-        this.setGame(id, game);
+    static updateGame(id: string, game: IGame, userId: string) {
+        this.setGame(id, game, userId);
     }
 
     static async persistGame(id: string) {
         const g = this.games.get(id);
         if (!g) return;
-        await GameDB.findByIdAndUpdate(id, { $set: g });
+        const { timeout, ...rest } = g as any;
+        await GameDB.findByIdAndUpdate(id, { $set: rest });        
     }
 
-    private static setGame(id: string, game: IGame) {
+    private static setGame(id: string, game: IGame, userId: string) {
         if (this.games.has(id)) clearTimeout(this.games.get(id)!.timeout);
         const timeout = setTimeout(async () => {
             await this.persistGame(id);
             this.games.delete(id);
         }, 10 * 60 * 1000);
-        this.games.set(id, { ...game, timeout });
+        this.games.set(id, { ...game, userId: new Types.ObjectId(userId), timeout });
     }
 
-    static flipCard(gameId: string, cardIndex: number) {
-        const game = this.getGame(gameId);
+    static flipCard(gameId: string, cardIndex: number, userId: string) {
+        const game = this.getGame(gameId, userId);
         if (!game) throw new Error("Game not found");
         if (game.status !== GameStatus.IN_PROGRESS) throw new Error("Game is not in progress");
 
@@ -75,12 +77,12 @@ export class GameSocketService {
             cardIndex,
         });
 
-        this.updateGame(gameId, game);
+        this.updateGame(gameId, game, userId);
         return game;
     }
 
-    static matchCards(gameId: string) {
-        const game = this.getGame(gameId);
+    static matchCards(gameId: string, userId: string) {
+        const game = this.getGame(gameId, userId);
         if (!game) throw new Error("Game not found");
         if (game.status !== GameStatus.IN_PROGRESS) throw new Error("Game is not in progress");
 
@@ -105,12 +107,12 @@ export class GameSocketService {
             game.status = GameStatus.COMPLETED;
         }
 
-        this.updateGame(gameId, game);
+        this.updateGame(gameId, game, userId);
         return game;
     }
 
-    static getSafeGame(gameId: string) {
-        const game = this.getGame(gameId);
+    static getSafeGame(gameId: string, userId: string) {
+        const game = this.getGame(gameId, userId);
         if (!game) throw new Error("Game not found");
         return toSafeGame(game);
     }
