@@ -2,6 +2,13 @@ import { Types } from "mongoose";
 import { IGame, GameDB, CardStatus, GameStatus, GameActionType } from "../models/Game.model";
 
 const toSafeGame = (game: IGame) => {
+    let endTime: number | null = null;
+
+    const firstFlip = game.actions.find(a => a.action === GameActionType.FLIP);
+    if (firstFlip) {
+        endTime = firstFlip.timestamp + 60 * 1000;
+    }
+
     return {
         _id: game._id.toString(),
         userId: game.userId.toString(),
@@ -10,10 +17,13 @@ const toSafeGame = (game: IGame) => {
             status: c.status,
             value: c.status === CardStatus.HIDDEN ? undefined : c.value
         })),
-        tries: Math.floor(game.actions.filter(a => a.action === GameActionType.FLIP).length / 2),
+        tries: Math.floor(
+            game.actions.filter(a => a.action === GameActionType.FLIP).length / 2
+        ),
         score: game.score,
         createdAt: game.createdAt,
         status: game.status,
+        endTime,
     };
 };
 
@@ -67,6 +77,16 @@ export class GameSocketService {
         const game = this.getGame(gameId, userId);
         if (!game) throw new Error("Game not found");
         if (game.status !== GameStatus.IN_PROGRESS) throw new Error("Game is not in progress");
+
+        if (game.actions.filter(a => a.action === GameActionType.FLIP).length === 0) {
+            setTimeout(() => {
+                const g = this.getGame(gameId, userId);
+                if (g && g.status === GameStatus.IN_PROGRESS) {
+                    g.status = GameStatus.COMPLETED;
+                    this.updateGame(gameId, g, userId);
+                }
+            }, 60 * 1000);
+        }
 
         const flipped = game.deck.filter(c => c.status === CardStatus.FLIPPED);
         if (flipped.length >= 2) {
