@@ -46,7 +46,7 @@ export class GameSocketService {
         const g = this.games.get(id);
         if (!g) return;
         const { timeout, ...rest } = g as any;
-        await GameDB.findByIdAndUpdate(id, { $set: rest });        
+        await GameDB.findByIdAndUpdate(id, { $set: rest });
     }
 
     private static setGame(id: string, game: IGame, userId: string) {
@@ -63,12 +63,19 @@ export class GameSocketService {
         if (!game) throw new Error("Game not found");
         if (game.status !== GameStatus.IN_PROGRESS) throw new Error("Game is not in progress");
 
+        const flipped = game.deck.filter(c => c.status === CardStatus.FLIPPED);
+        if (flipped.length >= 2) {
+            this.matchCards(gameId, userId);
+        }
+
+        const flippedAfterMatch = game.deck.filter(c => c.status === CardStatus.FLIPPED);
+        if (flippedAfterMatch.length >= 2) {
+            throw new Error("Already 2 cards flipped");
+        }
+
         const card = game.deck[cardIndex];
         if (!card) throw new Error("Invalid card index");
         if (card.status !== CardStatus.HIDDEN) throw new Error("Card already flipped or matched");
-
-        const flipped = game.deck.filter(c => c.status === CardStatus.FLIPPED);
-        if (flipped.length >= 2) throw new Error("Already 2 cards flipped");
 
         card.status = CardStatus.FLIPPED;
         game.actions.push({
@@ -80,6 +87,7 @@ export class GameSocketService {
         this.updateGame(gameId, game, userId);
         return game;
     }
+
 
     static matchCards(gameId: string, userId: string) {
         const game = this.getGame(gameId, userId);
