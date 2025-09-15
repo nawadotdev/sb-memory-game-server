@@ -1,6 +1,5 @@
 import { Schema, model, models, Types } from "mongoose";
 
-
 export enum CardStatus {
     HIDDEN = "hidden",
     FLIPPED = "flipped",
@@ -26,19 +25,20 @@ export interface IGameAction {
     matchedCardIndex?: number[];
 }
 
+export enum GameStatus {
+    IN_PROGRESS = "in_progress",
+    COMPLETED = "completed",
+}
+
 export interface IGame {
     _id: Types.ObjectId;
     userId: Types.ObjectId;
     deck: ICard[];
     actions: IGameAction[];
     status: GameStatus;
+    score: number;
     createdAt: Date;
     updatedAt: Date;
-}
-
-export enum GameStatus {
-    IN_PROGRESS = "in_progress",
-    COMPLETED = "completed",
 }
 
 export const CardSchema = new Schema<ICard>({
@@ -50,8 +50,8 @@ export const CardSchema = new Schema<ICard>({
 export const GameActionSchema = new Schema<IGameAction>({
     action: { type: String, enum: GameActionType, required: true },
     timestamp: { type: Number, required: true },
-    cardIndex: { type: Number, required: false },
-    matchedCardIndex: { type: [Number], required: false },
+    cardIndex: { type: Number },
+    matchedCardIndex: { type: [Number] },
 }, { _id: false });
 
 export const GameSchema = new Schema<IGame>({
@@ -59,11 +59,13 @@ export const GameSchema = new Schema<IGame>({
     deck: { type: [CardSchema], required: true },
     actions: { type: [GameActionSchema], required: true },
     status: { type: String, enum: GameStatus, required: true },
+    score: { type: Number, required: true, default: 0 },
 }, {
     timestamps: true,
 });
 
 GameSchema.index({ userId: 1, createdAt: -1 });
+GameSchema.index({ score: -1 });
 
 export const GameDB = models?.Game || model<IGame>("Game", GameSchema);
 
@@ -78,6 +80,7 @@ export interface ISafeGame {
     userId: string;
     cards: ISafeCard[];
     tries: number;
+    score: number;
     createdAt: Date;
     updatedAt: Date;
 }

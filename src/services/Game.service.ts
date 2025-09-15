@@ -5,8 +5,13 @@ const toSafeGame = (game: IGame) => {
     return {
         _id: game._id.toString(),
         userId: game.userId.toString(),
-        cards: game.deck.map((c) => ({ index: c.index, status: c.status, value: c.status === CardStatus.HIDDEN ? undefined : c.value })),
-        tries: game.actions.filter((a) => a.action === GameActionType.FLIP).length / 2,
+        cards: game.deck.map((c) => ({
+            index: c.index,
+            status: c.status,
+            value: c.status === CardStatus.HIDDEN ? undefined : c.value
+        })),
+        tries: Math.floor(game.actions.filter(a => a.action === GameActionType.FLIP).length / 2),
+        score: game.score,
         createdAt: game.createdAt,
         status: game.status,
     };
@@ -88,7 +93,6 @@ export class GameSocketService {
         return game;
     }
 
-
     static matchCards(gameId: string, userId: string) {
         const game = this.getGame(gameId, userId);
         if (!game) throw new Error("Game not found");
@@ -106,6 +110,7 @@ export class GameSocketService {
                 timestamp: Date.now(),
                 matchedCardIndex: [first.index, second.index],
             });
+            game.score += 1;
         } else {
             first.status = CardStatus.HIDDEN;
             second.status = CardStatus.HIDDEN;
