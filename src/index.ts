@@ -1,70 +1,107 @@
 import { createServer } from "http";
-import { Server } from "socket.io";
+import { WebSocketServer, WebSocket } from "ws";
 import { verifyToken } from "./lib/jwt";
 import { GameSocketService } from "./services/Game.service";
 import { connectDB } from "./lib/mongodb";
+
+const PORT = process.env.PORT || 3000;
 
 (async () => {
   await connectDB();
 
   const httpServer = createServer();
-  const io = new Server(httpServer, {
-    cors: {
-      origin: [
-        "http://localhost:3000",
-        "https://sb-memory-game.vercel.app",
-      ],
-      methods: ["GET", "POST"],
-      credentials: true,
-    },
-    transports: ["websocket", "polling"],
-  });
+  const wss = new WebSocketServer({ server: httpServer });
 
-  io.use((socket, next) => {
+  // gameId -> set of clients
+  const rooms = new Map<string, Set<WebSocket>>();
+
+  wss.on("connection", (ws, req) => {
     try {
-      const token = socket.handshake.auth?.token;
-      if (!token) return next(new Error("Missing token"));
+      const params = new URLSearchParams(req.url?.split("?")[1]);
+      const token = params.get("token");
+      if (!token) {
+        ws.close(4001, "Missing token");
+        return;
+      }
       const userId = verifyToken(token);
-      (socket as any).userId = userId;
-      next();
+      (ws as any).userId = userId;
+
+      console.log(`User connected: ${userId}`);
+
+      ws.on("message", async (raw) => {
+        try {
+          const { type, payload } = JSON.parse(raw.toString());
+          const uid = (ws as any).userId;
+
+          if (type === "join") {
+            const { gameId } = payload;
+            let game = GameSocketService.getGame(gameId, uid);
+            if (!game) game = await GameSocketService.loadGame(gameId, uid);
+            if (!game) {
+              ws.send(JSON.stringify({ type: "error_message", payload: "Game not found" }));
+              return;
+            }
+
+            if (!rooms.has(gameId)) rooms.set(gameId, new Set());
+            rooms.get(gameId)!.add(ws);
+
+            ws.send(JSON.stringify({ type: "state", payload: GameSocketService.getSafeGame(gameId, uid) }));
+          }
+
+          if (type === "flip") {
+            const { gameId, cardIndex } = payload;
+            try {
+              GameSocketService.flipCard(gameId, cardIndex, uid);
+              broadcast(gameId, {
+                type: "state",
+                payload: GameSocketService.getSafeGame(gameId, uid),
+              });
+            } catch (err: any) {
+              ws.send(JSON.stringify({ type: "error_message", payload: err.message }));
+            }
+          }
+
+          if (type === "match") {
+            const { gameId } = payload;
+            try {
+              GameSocketService.matchCards(gameId, uid);
+              broadcast(gameId, {
+                type: "state",
+                payload: GameSocketService.getSafeGame(gameId, uid),
+              });
+            } catch (err: any) {
+              ws.send(JSON.stringify({ type: "error_message", payload: err.message }));
+            }
+          }
+        } catch (err) {
+          ws.send(JSON.stringify({ type: "error_message", payload: "Invalid message format" }));
+        }
+      });
+
+      ws.on("close", () => {
+        // kullanıcı çıkınca odalardan temizle
+        for (const [gameId, clients] of rooms.entries()) {
+          clients.delete(ws);
+          if (clients.size === 0) rooms.delete(gameId);
+        }
+      });
     } catch {
-      next(new Error("Invalid token"));
+      ws.close(4002, "Invalid token");
     }
   });
 
-  io.on("connection", (socket) => {
-    const userId = (socket as any).userId;
-    console.log(`User connected: ${userId}`);
-
-    socket.on("join", async (gameId: string) => {
-      let game = GameSocketService.getGame(gameId, userId);
-      if (!game) game = await GameSocketService.loadGame(gameId, userId);
-      if (!game) return socket.emit("error_message", "Game not found");
-
-      socket.join(gameId);
-      socket.emit("state", GameSocketService.getSafeGame(gameId, userId));
-    });
-
-    socket.on("flip", ({ gameId, cardIndex }) => {
-      try {
-        GameSocketService.flipCard(gameId, cardIndex, userId);
-        io.to(gameId).emit("state", GameSocketService.getSafeGame(gameId, userId));
-      } catch (err: any) {
-        socket.emit("error_message", err.message);
+  function broadcast(gameId: string, message: any) {
+    const clients = rooms.get(gameId);
+    if (!clients) return;
+    const data = JSON.stringify(message);
+    for (const client of clients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(data);
       }
-    });
+    }
+  }
 
-    socket.on("match", ({ gameId }) => {
-      try {
-        GameSocketService.matchCards(gameId, userId);
-        io.to(gameId).emit("state", GameSocketService.getSafeGame(gameId, userId));
-      } catch (err: any) {
-        socket.emit("error_message", err.message);
-      }
-    });
-  });
-
-  httpServer.listen(8080, () => console.log("WS server listening :8080"));
+  httpServer.listen(PORT, () => console.log(`WS server listening :${PORT}`));
 
   const shutdown = async () => {
     console.log("Shutting down... Persisting active games...");
@@ -73,7 +110,7 @@ import { connectDB } from "./lib/mongodb";
       await GameSocketService.persistGame(game._id.toString());
     }
     console.log("All active games persisted. Closing server...");
-    io.close();
+    wss.close();
     httpServer.close(() => {
       console.log("HTTP server closed");
       process.exit(0);
