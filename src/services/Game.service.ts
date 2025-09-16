@@ -78,7 +78,11 @@ export class GameSocketService {
         if (!game) throw new Error("Game not found");
         if (game.status !== GameStatus.IN_PROGRESS) throw new Error("Game is not in progress");
 
-        if (game.actions.filter(a => a.action === GameActionType.FLIP).length === 0) {
+        if (game.actions.length === 0) {
+            game.actions.push({
+                action: GameActionType.START,
+                timestamp: Date.now(),
+            })
             setTimeout(() => {
                 const g = this.getGame(gameId, userId);
                 if (g && g.status === GameStatus.IN_PROGRESS) {
@@ -109,6 +113,10 @@ export class GameSocketService {
             cardIndex,
         });
 
+        if(game.deck.every(c => c.status !== CardStatus.HIDDEN)){
+            this.matchCards(gameId, userId);
+        }
+
         this.updateGame(gameId, game, userId);
         return game;
     }
@@ -136,8 +144,13 @@ export class GameSocketService {
             second.status = CardStatus.HIDDEN;
         }
 
-        if (game.deck.every(c => c.status === CardStatus.FOUND)) {
+        if(game.deck.every(c => c.status === CardStatus.FOUND)){
             game.status = GameStatus.COMPLETED;
+            game.actions.push({
+                action: GameActionType.END,
+                timestamp: Date.now(),
+            });
+            this.persistGame(gameId);
         }
 
         this.updateGame(gameId, game, userId);
