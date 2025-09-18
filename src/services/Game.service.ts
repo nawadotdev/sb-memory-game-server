@@ -6,7 +6,7 @@ const toSafeGame = (game: IGame) => {
 
     const firstFlip = game.actions.find(a => a.action === GameActionType.FLIP);
     if (firstFlip) {
-        endTime = firstFlip.timestamp + 60 * 1000;
+        endTime = firstFlip.timestamp + 20 * 1000;
     }
 
     return {
@@ -20,6 +20,7 @@ const toSafeGame = (game: IGame) => {
         tries: Math.floor(
             game.actions.filter(a => a.action === GameActionType.FLIP).length / 2
         ),
+        attempt: game.attempt,
         score: game.score,
         createdAt: game.createdAt,
         status: game.status,
@@ -69,7 +70,7 @@ export class GameSocketService {
         const timeout = setTimeout(async () => {
             await this.persistGame(id);
             this.games.delete(id);
-        }, 10 * 60 * 1000);
+        }, 1 * 60 * 1000);
         this.games.set(id, { ...game, userId: new Types.ObjectId(userId), timeout });
     }
 
@@ -87,9 +88,14 @@ export class GameSocketService {
                 const g = this.getGame(gameId, userId);
                 if (g && g.status === GameStatus.IN_PROGRESS) {
                     g.status = GameStatus.COMPLETED;
+                    g.actions.push({
+                        action: GameActionType.END,
+                        timestamp: Date.now(),
+                    });
                     this.updateGame(gameId, g, userId);
+                    this.persistGame(gameId);                    
                 }
-            }, 60 * 1000);
+            }, 20 * 1000);
         }
 
         const flipped = game.deck.filter(c => c.status === CardStatus.FLIPPED);
